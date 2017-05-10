@@ -1,12 +1,20 @@
-package com.diy.cheng.diyfilter;
+package com.diy.cheng.opengl;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
+import android.hardware.Camera;
+import android.opengl.EGL14;
+import android.opengl.EGLContext;
+import android.opengl.EGLDisplay;
+import android.opengl.EGLSurface;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
 import android.util.Log;
+
+import com.diy.cheng.camera.CameraEngine;
+import com.diy.cheng.encode.CameraRecord;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -37,17 +45,23 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
     private float[] matrix1;
 
     private GLSurfaceView glSurfaceView;
+    private CameraRecord recorder;
 
-    public FilterRenderer(GLSurfaceView glSurfaceView) {
+    private int previewWidth = 0;
+    private int previewHeight = 0;
+
+    public FilterRenderer() {
+        matrix = createIdentityMtx();
+        matrix1 = createIdentityMtx();
+    }
+
+    public void setGlSurfaceView(GLSurfaceView glSurfaceView) {
         this.glSurfaceView = glSurfaceView;
         glSurfaceView.setEGLContextClientVersion(2);    // 设置clientVersion
         glSurfaceView.setRenderer(this);
         glSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
 
         context = glSurfaceView.getContext();
-        matrix = createIdentityMtx();
-        matrix1 = createIdentityMtx();
-
     }
 
     public static float[] createIdentityMtx() {
@@ -59,13 +73,13 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
     @Override
     public void onSurfaceCreated(GL10 gl10, EGLConfig eglConfig) {
         // 初始化绘制区域buffer 初始化以后给什么用
-        cubeBuffer = ByteBuffer.allocateDirect(OpglUtils.CUBE.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        cubeBuffer.put(OpglUtils.CUBE);
+        cubeBuffer = ByteBuffer.allocateDirect(OpenGlUtils.CUBE.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        cubeBuffer.put(OpenGlUtils.CUBE);
         cubeBuffer.position(0);
 
         // 初始化纹理buffer 初始化以后给什么用
-        vertexBuffer = ByteBuffer.allocateDirect(OpglUtils.TEXTURE_270.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vertexBuffer.put(OpglUtils.TEXTURE_270);
+        vertexBuffer = ByteBuffer.allocateDirect(OpenGlUtils.TEXTURE_270.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        vertexBuffer.put(OpenGlUtils.TEXTURE_270);
         vertexBuffer.position(0);
 
         // 创建纹理id 初始化以后给什么用，创建surfaceTexture，给camera做预览
@@ -105,9 +119,14 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
 
     @Override
     public void onSurfaceChanged(GL10 gl10, int width, int height) {
+        Log.e("chengqixiang", "width === " + width + " height === " + height);
         GLES20.glViewport(0, 0, width, height);
-        CameraManager.getInstance(context).openCamera(surfaceTexture);
-
+        CameraEngine.getInstance(context).openCamera(Camera.CameraInfo.CAMERA_FACING_FRONT);
+        CameraEngine.getInstance(context).startPreview(surfaceTexture);
+        Camera.Size size = CameraEngine.getInstance(context).getCamera().getParameters().getPreviewSize();
+        this.previewWidth = size.width;
+        this.previewHeight = size.height;
+        Log.e("chengqixiang", "previewWidth === " + previewWidth + " previewHeight === " + previewHeight);
         // 创建和生成小程序
         programeId = createProgram();
 
@@ -129,8 +148,16 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
             available = false;
         }
 
-        GLES20.glUseProgram(programeId);
+        saveRenderState();
 
+        if (recorder != null && recorder.prepareRecord()) {
+            recorder.startRecord();
+            recorder.makeCurrent();
+        } else if (recorder != null) {
+            recorder.makeCurrent();
+        }
+
+        GLES20.glUseProgram(programeId);
         cubeBuffer.position(0);
         // 指定要修改的顶点属性的索引值
         // 每个点由几个值表示
@@ -156,6 +183,34 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         GLES20.glDisableVertexAttribArray(maPositionHandle);
         GLES20.glDisableVertexAttribArray(maTexCoordHandle);
+
+        if (recorder != null) {
+            recorder.swapBuffers();
+        }
+
+        restoreRenderState();
+    }
+
+    private EGLDisplay mSavedEglDisplay     = null;
+    private EGLSurface mSavedEglDrawSurface = null;
+    private EGLSurface mSavedEglReadSurface = null;
+    private EGLContext mSavedEglContext     = null;
+
+    private void saveRenderState() {
+        mSavedEglDisplay     = EGL14.eglGetCurrentDisplay();
+        mSavedEglDrawSurface = EGL14.eglGetCurrentSurface(EGL14.EGL_DRAW);
+        mSavedEglReadSurface = EGL14.eglGetCurrentSurface(EGL14.EGL_READ);
+        mSavedEglContext     = EGL14.eglGetCurrentContext();
+    }
+
+    private void restoreRenderState() {
+        if (!EGL14.eglMakeCurrent(
+                mSavedEglDisplay,
+                mSavedEglDrawSurface,
+                mSavedEglReadSurface,
+                mSavedEglContext)) {
+            throw new RuntimeException("eglMakeCurrent failed");
+        }
     }
 
     @Override
@@ -167,8 +222,8 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
     }
 
     private int createProgram() {
-        int vertexId = OpglUtils.loadShader(GLES20.GL_VERTEX_SHADER, OpglUtils.createVertexShader(context, "gray/vertexshader.glsl"));
-        int fragmentId = OpglUtils.loadShader(GLES20.GL_FRAGMENT_SHADER, OpglUtils.createVertexShader(context, "gray/fragmentshader.glsl"));
+        int vertexId = OpenGlUtils.loadShader(GLES20.GL_VERTEX_SHADER, OpenGlUtils.createVertexShader(context, "gray/vertexshader.glsl"));
+        int fragmentId = OpenGlUtils.loadShader(GLES20.GL_FRAGMENT_SHADER, OpenGlUtils.createVertexShader(context, "gray/fragmentshader.glsl"));
 
         int programId = GLES20.glCreateProgram();
         GLES20.glAttachShader(programId, vertexId);
@@ -183,5 +238,9 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
             programId = 0;
         }
         return programId;
+    }
+
+    public void startRecord() {
+        recorder = new CameraRecord(previewWidth, previewHeight);
     }
 }

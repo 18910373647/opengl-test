@@ -1,4 +1,4 @@
-package com.diy.cheng.diyfilter;
+package com.diy.cheng.opengl;
 
 import android.content.Context;
 import android.opengl.GLES20;
@@ -11,7 +11,7 @@ import java.io.InputStream;
  * Created by 0 on 2017/5/9.
  */
 
-public class OpglUtils {
+public class OpenGlUtils {
     public static final float[] CUBE = new float[] {
             -1.0f, 1.0f,
             -1.0f, -1.0f,
