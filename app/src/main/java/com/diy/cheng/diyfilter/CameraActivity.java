@@ -59,6 +59,8 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback, 
         engine.addCallbackBuffer(byteBuffer);
         engine.setPreviewCallbackWithBuffer(this);
         engine.startPreview(holder);
+
+        recorder.prepareRecord(CameraRecord.EncodeType.CAMERAENCODE);
     }
 
     @Override
@@ -78,14 +80,6 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback, 
 
     @Override
     public void onPreviewFrame(byte[] data, Camera camera) {
-        if (recorder.prepareRecord()) {
-            recorder.startRecord();
-            recorder.makeCurrent();
-        } else {
-            recorder.makeCurrent();
-        }
-
-        recorder.swapBuffers();
         engine.addCallbackBuffer(byteBuffer);
     }
 }

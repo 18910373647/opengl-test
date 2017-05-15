@@ -26,8 +26,16 @@ public class CameraRecord {
     boolean isStart = false;
     private ReentrantLock reentrantLock = new ReentrantLock();  // TODO 看看java锁
     private VideoMuxer videoMuxer;
+    private EncodeType encodeType;
+    private static final int WAIT_TIME = 12 * 1000;
+
+    private int width;
+    private int height;
 
     public CameraRecord(int width, int height) {
+        this.width = width;
+        this.height = height;
+
         MediaFormat format = MediaFormat.createVideoFormat("video/avc", width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE, 1300 * 1024);
@@ -65,19 +73,28 @@ public class CameraRecord {
         }
     }
 
-    public boolean prepareRecord() {
-        if (mediaCodec == null || inputSurface != null) {
-            return false;
-        }
-
-        try {
-            inputSurface = new InputSurface(mediaCodec.createInputSurface());
+    public boolean prepareRecord(EncodeType type) {
+        this.encodeType = type;
+        if (type == EncodeType.CAMERAENCODE) {
+            if (mediaCodec == null) {
+                return false;
+            }
             mediaCodec.start();
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new RuntimeException(e);
+            return true;
+        } else {
+            if (mediaCodec == null || inputSurface != null) {
+                return false;
+            }
+
+            try {
+                inputSurface = new InputSurface(mediaCodec.createInputSurface());
+                mediaCodec.start();
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new RuntimeException(e);
+            }
+            return true;
         }
-        return true;
     }
 
     public void startRecord() {
@@ -88,7 +105,11 @@ public class CameraRecord {
     Runnable runnable = new Runnable() {
         @Override
         public void run() {
-            drainEncode();
+            if (encodeType == EncodeType.CAMERAENCODE) {
+                drainCameraEncode();
+            } else {
+                drainSurfaceEncode();
+            }
         }
     };
 
@@ -104,18 +125,18 @@ public class CameraRecord {
         reentrantLock.unlock();
     }
 
-    public void drainEncode() {
+    public void drainSurfaceEncode() {
         ByteBuffer[] outputBuffer = mediaCodec.getOutputBuffers();
         while (isStart) {
             reentrantLock.lock();
             if (mediaCodec != null) {
-                int outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 12 * 1000);
+                int outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, WAIT_TIME);
                 if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     MediaFormat mediaFormat = mediaCodec.getOutputFormat();
                     videoMuxer.prepare(mediaFormat);
                 } else if (outputIndex >= 0) {
                     ByteBuffer byteBuffer = outputBuffer[outputIndex];
-                    if (videoMuxer != null && bufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG && bufferInfo.size > 11) { // BUFFER_FLAG_CODEC_CONFIG编码器信息，而不是媒体数据
+                    if (videoMuxer != null && bufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG) { // BUFFER_FLAG_CODEC_CONFIG编码器信息，而不是媒体数据
                         videoMuxer.start(byteBuffer, bufferInfo);
                     }
                     mediaCodec.releaseOutputBuffer(outputIndex, false);
@@ -130,6 +151,47 @@ public class CameraRecord {
             } else {
                 reentrantLock.unlock();
                 break;
+            }
+        }
+    }
+
+    byte[] data = new byte[width * height * 3 / 2];
+    private void drainCameraEncode() {
+        if (mediaCodec == null) {
+            return ;
+        }
+
+        while (isStart) {
+            data = listener.getData();
+            if (data == null) {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                continue;
+            }
+
+            ByteBuffer[] inputBuffers = mediaCodec.getInputBuffers();
+            int inputIndex = mediaCodec.dequeueInputBuffer(WAIT_TIME);
+            if (inputIndex >= 0) {
+                ByteBuffer byteBuffer = inputBuffers[inputIndex];
+                byteBuffer.clear();
+                byteBuffer.put(data);
+                mediaCodec.queueInputBuffer(inputIndex, 0, data.length, 0, 0);
+            }
+
+            ByteBuffer[] outputBuffers = mediaCodec.getOutputBuffers();
+            int outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, WAIT_TIME);
+            if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                MediaFormat format = mediaCodec.getOutputFormat();
+                videoMuxer.prepare(format);
+            } else if (outputIndex >= 0) {
+                ByteBuffer byteBuffer = outputBuffers[outputIndex];
+                if (bufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG) {
+                    videoMuxer.start(byteBuffer, bufferInfo);
+                }
+                mediaCodec.releaseOutputBuffer(outputIndex, false);
             }
         }
     }
@@ -154,5 +216,19 @@ public class CameraRecord {
             inputSurface.release();
             inputSurface = null;
         }
+    }
+
+    public enum EncodeType {
+        SURFACEENCODE,
+        CAMERAENCODE,
+    };
+
+    IEncodecDataListener listener;
+    public void setDataListener(IEncodecDataListener listener) {
+        this.listener = listener;
+    }
+
+    public interface IEncodecDataListener {
+        byte[] getData();
     }
 }
