@@ -33,7 +33,6 @@ public class VideoMuxer {
 
     public void prepare(MediaFormat mediaFormat) {
         trackIndex = mediaMuxer.addTrack(mediaFormat);
-        Log.e("chengqixiang", "trackIndex ==== " + trackIndex);
         mediaMuxer.start();
         isAddTrack = true;
     }

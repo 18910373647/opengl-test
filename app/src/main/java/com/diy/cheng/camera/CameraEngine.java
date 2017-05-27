@@ -1,8 +1,12 @@
 package com.diy.cheng.camera;
 
 import android.content.Context;
+import android.graphics.ImageFormat;
+import android.graphics.PixelFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
+import android.media.MediaCodecInfo;
+import android.util.Log;
 import android.view.SurfaceHolder;
 
 import java.io.IOException;
@@ -119,19 +123,25 @@ public class CameraEngine {
     public void setDefaultParameters() {
         if (camera != null) {
             Camera.Parameters parameters = camera.getParameters();
-            Camera.Size preview_size = CameraUtils.getSupportLargePreviewSize(camera);
-            parameters.setPreviewSize(preview_size.width, preview_size.height);
-            Camera.Size picture_size = CameraUtils.getSupportLargePictureSize(camera);
-            parameters.setPictureSize(picture_size.width, picture_size.height);
             if (parameters.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)) {
                 parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
             } else if (parameters.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
                 parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
             }
-            parameters.setRotation(90);
+            parameters.setPreviewFormat(ImageFormat.NV21);
             camera.setParameters(parameters);
             // TODO
         }
+    }
+
+    public void setPreviewSize(int width, int height) {
+        CameraUtils.getSupportCameraPreviewFormat(camera);
+        Camera.Size size = CameraUtils.getSupportLargePreviewSize(camera, width, height);
+        Camera.Parameters p = camera.getParameters();
+        p.setPreviewSize(size.width, size.height);
+        p.setPictureSize(size.width, size.height);
+        Log.e("chengqixiang", "size.width === " + size.width + " size.height === " + size.height);
+        camera.setParameters(p);
     }
 
     public void setOrientation(int orientation) {

@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.hardware.Camera;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
+import android.util.Log;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -11,6 +13,10 @@ import android.widget.Button;
 
 import com.diy.cheng.camera.CameraEngine;
 import com.diy.cheng.encode.CameraRecord;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Created by 0 on 2017/5/10.
@@ -53,6 +59,8 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback, 
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        Log.e("chengqixiang", "surfaceChanged  width === " + width + " height === " + height);
+        engine.setPreviewSize(width, height);
         Camera.Size size = engine.getCamera().getParameters().getPreviewSize();
         recorder = new CameraRecord(size.width, size.height);
         byteBuffer = new byte[size.width * size.height * 3 / 2];
@@ -60,7 +68,7 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback, 
         engine.setPreviewCallbackWithBuffer(this);
         engine.startPreview(holder);
 
-        recorder.prepareRecord(CameraRecord.EncodeType.CAMERAENCODE);
+        recorder.prepareRecord();
     }
 
     @Override
@@ -72,7 +80,7 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback, 
     @Override
     public void onClick(View v) {
         if (v.getId() == R.id.start_button) {
-            recorder.prepareRecord();
+            recorder.startRecord();
         } else if (v.getId() == R.id.stop_button) {
             recorder.stopRecord();
         }
@@ -80,6 +88,23 @@ public class CameraActivity extends Activity implements SurfaceHolder.Callback, 
 
     @Override
     public void onPreviewFrame(byte[] data, Camera camera) {
+        recorder.drainCameraEncode(data);
         engine.addCallbackBuffer(byteBuffer);
+    }
+
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        return super.dispatchTouchEvent(ev);
+    }
+
+    @Override
+    public void onUserInteraction() {
+        super.onUserInteraction();
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        return super.onTouchEvent(event);
     }
 }

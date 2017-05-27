@@ -150,13 +150,6 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
 
         saveRenderState();
 
-        if (recorder != null && recorder.prepareRecord()) {
-            recorder.startRecord();
-            recorder.makeCurrent();
-        } else if (recorder != null) {
-            recorder.makeCurrent();
-        }
-
         GLES20.glUseProgram(programeId);
         cubeBuffer.position(0);
         // 指定要修改的顶点属性的索引值
@@ -183,10 +176,6 @@ public class FilterRenderer implements GLSurfaceView.Renderer, SurfaceTexture.On
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         GLES20.glDisableVertexAttribArray(maPositionHandle);
         GLES20.glDisableVertexAttribArray(maTexCoordHandle);
-
-        if (recorder != null) {
-            recorder.swapBuffers();
-        }
 
         restoreRenderState();
     }

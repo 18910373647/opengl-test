@@ -1,6 +1,7 @@
 package com.diy.cheng.camera;
 
 import android.hardware.Camera;
+import android.util.Log;
 
 import java.util.List;
 
@@ -9,15 +10,20 @@ import java.util.List;
  */
 
 public class CameraUtils {
-    public static Camera.Size getSupportLargePreviewSize(Camera camera) {
+    public static Camera.Size getSupportLargePreviewSize(Camera camera, int width, int height) {
         List<Camera.Size> sizes = camera.getParameters().getSupportedPreviewSizes();
-        Camera.Size tmp = sizes.get(0);
-        for (int i = 0; i < sizes.size(); i++) {
-            if (tmp.width < sizes.get(i).width) {
-                tmp = sizes.get(i);
+        Camera.Size size = null;
+        for (int i = 0; i < sizes.size(); i++) {    // 从大到小排列
+            if (i + 1 > sizes.size()) {
+                size = sizes.get(i);
+                break;
+            }
+            if (width <= sizes.get(i).width && width > sizes.get(i + 1).width) {
+                size = sizes.get(i);
+                break;
             }
         }
-        return tmp;
+        return size;
     }
 
     public static Camera.Size getSupportLargePictureSize(Camera camera) {
@@ -41,5 +47,17 @@ public class CameraUtils {
             }
         }
         return false;
+    }
+
+    public static void getSupportCameraPreviewFormat(Camera camera) {
+        if (camera == null) {
+            return ;
+        }
+
+        Camera.Parameters parameters = camera.getParameters();
+        List<Integer> supportList = parameters.getSupportedPictureFormats();
+        for (int i = 0; i < supportList.size(); i++) {
+            Log.e("chengqixiang", "format === " + supportList.get(i));
+        }
     }
 }

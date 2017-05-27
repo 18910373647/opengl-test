@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/DiyFilter.iml" filepath="$PROJECT_DIR$/DiyFilter.iml" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/opengl-test.iml" filepath="$PROJECT_DIR$/opengl-test.iml" />
     </modules>
   </component>
 </project>

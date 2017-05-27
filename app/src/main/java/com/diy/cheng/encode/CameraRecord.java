@@ -3,13 +3,20 @@ package com.diy.cheng.encode;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Log;
 
+import com.diy.cheng.camera.CameraEngine;
 import com.diy.cheng.opengl.InputSurface;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -19,14 +26,12 @@ import java.util.concurrent.locks.ReentrantLock;
 public class CameraRecord {
     MediaCodec mediaCodec;
     MediaCodec.BufferInfo bufferInfo;
-    InputSurface inputSurface;
     Handler handler;
     HandlerThread handlerThread;
 
     boolean isStart = false;
     private ReentrantLock reentrantLock = new ReentrantLock();  // TODO 看看java锁
     private VideoMuxer videoMuxer;
-    private EncodeType encodeType;
     private static final int WAIT_TIME = 12 * 1000;
 
     private int width;
@@ -36,13 +41,14 @@ public class CameraRecord {
         this.width = width;
         this.height = height;
 
-        MediaFormat format = MediaFormat.createVideoFormat("video/avc", width, height);
-        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+        Log.e("chengqixiang", "width === " + width + " height === " + height);
+        // TODO 1，因为preview的图像是横向的，需要将宽高进行翻转下。
+        MediaFormat format = MediaFormat.createVideoFormat("video/avc", height, width);
+        // TODO 2，camera支持的预览NV21 -- YYYY YYYY VUVU,mediaCodec支持的格式YUV420SP(NV12) -- YYYY YYYY UVUV
+        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar);
         format.setInteger(MediaFormat.KEY_BIT_RATE, 1300 * 1024);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, 15);
-        format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
-        format.setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR);
-        format.setInteger(MediaFormat.KEY_COMPLEXITY, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR);
+        format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
 
         try {
             mediaCodec = MediaCodec.createEncoderByType("video/avc");
@@ -52,66 +58,24 @@ public class CameraRecord {
         }
 
         videoMuxer = new VideoMuxer();
-
         bufferInfo = new MediaCodec.BufferInfo();
-        // TODO HandlerThread 具体用来做什么
+
         handlerThread = new HandlerThread("mediacodec_encode");
         handlerThread.start();
         handler = new Handler(handlerThread.getLooper());
     }
 
-    public void makeCurrent() {
-        if (inputSurface != null) {
-            inputSurface.makeCurrent();
+    public boolean prepareRecord() {
+        if (mediaCodec == null) {
+            return false;
         }
-    }
-
-    public void swapBuffers() {
-        if (inputSurface != null) {
-            inputSurface.swapBuffers();
-            inputSurface.setPresentationTime(System.nanoTime());
-        }
-    }
-
-    public boolean prepareRecord(EncodeType type) {
-        this.encodeType = type;
-        if (type == EncodeType.CAMERAENCODE) {
-            if (mediaCodec == null) {
-                return false;
-            }
-            mediaCodec.start();
-            return true;
-        } else {
-            if (mediaCodec == null || inputSurface != null) {
-                return false;
-            }
-
-            try {
-                inputSurface = new InputSurface(mediaCodec.createInputSurface());
-                mediaCodec.start();
-            } catch (Exception e) {
-                e.printStackTrace();
-                throw new RuntimeException(e);
-            }
-            return true;
-        }
+        mediaCodec.start();
+        return true;
     }
 
     public void startRecord() {
         isStart = true;
-        handler.post(runnable);
     }
-
-    Runnable runnable = new Runnable() {
-        @Override
-        public void run() {
-            if (encodeType == EncodeType.CAMERAENCODE) {
-                drainCameraEncode();
-            } else {
-                drainSurfaceEncode();
-            }
-        }
-    };
 
     public void stopRecord() {
         if (!isStart) {
@@ -125,75 +89,86 @@ public class CameraRecord {
         reentrantLock.unlock();
     }
 
-    public void drainSurfaceEncode() {
-        ByteBuffer[] outputBuffer = mediaCodec.getOutputBuffers();
-        while (isStart) {
-            reentrantLock.lock();
-            if (mediaCodec != null) {
-                int outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, WAIT_TIME);
-                if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    MediaFormat mediaFormat = mediaCodec.getOutputFormat();
-                    videoMuxer.prepare(mediaFormat);
-                } else if (outputIndex >= 0) {
-                    ByteBuffer byteBuffer = outputBuffer[outputIndex];
-                    if (videoMuxer != null && bufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG) { // BUFFER_FLAG_CODEC_CONFIG编码器信息，而不是媒体数据
-                        videoMuxer.start(byteBuffer, bufferInfo);
-                    }
-                    mediaCodec.releaseOutputBuffer(outputIndex, false);
-                } else {
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-                reentrantLock.unlock();
-            } else {
-                reentrantLock.unlock();
-                break;
-            }
-        }
-    }
-
-    byte[] data = new byte[width * height * 3 / 2];
-    private void drainCameraEncode() {
+    public void drainCameraEncode(byte[] src) {
         if (mediaCodec == null) {
             return ;
         }
 
-        while (isStart) {
-            data = listener.getData();
-            if (data == null) {
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                continue;
-            }
+        if (!isStart) {
+            return ;
+        }
+        byte[] data1;
+        byte[] data;
 
-            ByteBuffer[] inputBuffers = mediaCodec.getInputBuffers();
-            int inputIndex = mediaCodec.dequeueInputBuffer(WAIT_TIME);
-            if (inputIndex >= 0) {
-                ByteBuffer byteBuffer = inputBuffers[inputIndex];
-                byteBuffer.clear();
-                byteBuffer.put(data);
-                mediaCodec.queueInputBuffer(inputIndex, 0, data.length, 0, 0);
-            }
+        // 处理下数据，预览方向正确，但是取出的数据方向不正确，UV数据不正确
+        // TODO 3,预览previewSize大小也有关
+        data1 = changeUV(src);
+        data = rotate(data1);
+        ByteBuffer[] inputBuffers = mediaCodec.getInputBuffers();
+        int inputIndex = mediaCodec.dequeueInputBuffer(WAIT_TIME);
 
-            ByteBuffer[] outputBuffers = mediaCodec.getOutputBuffers();
-            int outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, WAIT_TIME);
-            if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                MediaFormat format = mediaCodec.getOutputFormat();
-                videoMuxer.prepare(format);
-            } else if (outputIndex >= 0) {
-                ByteBuffer byteBuffer = outputBuffers[outputIndex];
-                if (bufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG) {
-                    videoMuxer.start(byteBuffer, bufferInfo);
-                }
-                mediaCodec.releaseOutputBuffer(outputIndex, false);
+        if (inputIndex >= 0) {
+            ByteBuffer byteBuffer = inputBuffers[inputIndex];
+            byteBuffer.clear();
+            byteBuffer.put(data);
+            mediaCodec.queueInputBuffer(inputIndex, 0, data.length, 0, 0);
+        }
+
+        ByteBuffer[] outputBuffers = mediaCodec.getOutputBuffers();
+        int outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, WAIT_TIME);
+
+        if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+            // TODO 4，初始化MediaMuxer
+            MediaFormat format = mediaCodec.getOutputFormat();
+            videoMuxer.prepare(format);
+        } else if (outputIndex >= 0) {
+            ByteBuffer byteBuffer = outputBuffers[outputIndex];
+            if (bufferInfo.flags != MediaCodec.BUFFER_FLAG_CODEC_CONFIG) {
+                videoMuxer.start(byteBuffer, bufferInfo);
+            }
+            mediaCodec.releaseOutputBuffer(outputIndex, false);
+        }
+    }
+
+    public byte[] rotate(byte[] data) {
+        byte[] tmp = new byte[width * height * 3 / 2];
+        int wh = width * height;
+        int k = 0;
+
+        // 旋转Y
+        for (int i = width - 1; i >= 0; i--) {
+            for (int j = height - 1; j >= 0; j--) {
+                tmp[k] = data[width * j + i];
+                k++;
             }
         }
+
+        // 旋转UV
+        for (int i = width - 2; i >= 0; i -= 2) {
+            for (int j = height / 2 - 1; j >= 0; j--) {
+                tmp[k] = data[wh + width * j + i];
+                tmp[k + 1] = data[wh + width * j + i + 1];
+                k += 2;
+            }
+        }
+        return tmp;
+    }
+
+    // 摄像头支持的视频输出格式NV21 -- YYYY YYYY VU VU
+    // mediaCodec支持的NV12 -- YYYY YYYY UV UV
+    // 需要将VU --> VU
+    public byte[] changeUV(byte[] data) {
+        byte[] tmp = new byte[width * height * 3 / 2];
+        for (int i = 0; i < width * height * 3 / 2; i++) {
+            if (i < width * height) {
+                tmp[i] = data[i];
+            } else if (i % 2 == 0) {
+                tmp[i + 1] = data[i];
+            } else {
+                tmp[i - 1] = data[i];
+            }
+        }
+        return tmp;
     }
 
     private void releaseEncode() {
@@ -203,32 +178,14 @@ public class CameraRecord {
         }
 
         if (mediaCodec != null) {
-            mediaCodec.signalEndOfInputStream();    //   因为Surface作为input的时候不会主动向Codec传递结束标志，
-                                                    //   所以得手动调用m_MediaCodec.signalEndOfInputStream();
-                                                    //   这时Surface将停止向Codec传输数据。注意此函数只有当Surface作为input时才能调用。
-                                                    //   结束编码记得release和stop
+//            if (encodeType == EncodeType.SURFACEENCODE) {
+//                mediaCodec.signalEndOfInputStream();    //   因为Surface作为input的时候不会主动向Codec传递结束标志，
+                                                        //   所以得手动调用m_MediaCodec.signalEndOfInputStream();
+                                                        //   这时Surface将停止向Codec传输数据。注意此函数只有当Surface作为input时才能调用//   结束编码记得release和stop
+//            }
             mediaCodec.stop();
             mediaCodec.release();
             mediaCodec = null;
         }
-
-        if (inputSurface != null) {
-            inputSurface.release();
-            inputSurface = null;
-        }
-    }
-
-    public enum EncodeType {
-        SURFACEENCODE,
-        CAMERAENCODE,
-    };
-
-    IEncodecDataListener listener;
-    public void setDataListener(IEncodecDataListener listener) {
-        this.listener = listener;
-    }
-
-    public interface IEncodecDataListener {
-        byte[] getData();
     }
 }
