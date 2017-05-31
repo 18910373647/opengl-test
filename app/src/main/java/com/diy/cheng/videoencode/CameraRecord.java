@@ -1,22 +1,14 @@
-package com.diy.cheng.encode;
+package com.diy.cheng.videoencode;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
 
-import com.diy.cheng.camera.CameraEngine;
-import com.diy.cheng.opengl.InputSurface;
-
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**

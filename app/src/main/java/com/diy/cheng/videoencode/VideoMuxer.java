@@ -1,4 +1,4 @@
-package com.diy.cheng.encode;
+package com.diy.cheng.videoencode;
 
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -31,8 +31,17 @@ public class VideoMuxer {
         }
     }
 
+    public VideoMuxer(String path) {
+        try {
+            mediaMuxer = new MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     public void prepare(MediaFormat mediaFormat) {
         trackIndex = mediaMuxer.addTrack(mediaFormat);
+        Log.e("chengqixiang", "trackIndex === " + trackIndex);
         mediaMuxer.start();
         isAddTrack = true;
     }
@@ -46,7 +55,9 @@ public class VideoMuxer {
             reentrantLock.lock();
             isStartMuxer = true;
             Log.e("chengqixiang", "bufferInfo.size ==== " + bufferInfo.size + "bufferInfo.offset === " + bufferInfo.offset);
+            Log.e("chengqixiang", "start write data");
             mediaMuxer.writeSampleData(trackIndex, byteBuffer, bufferInfo);
+            Log.e("chengqixiang", "end write data");
             reentrantLock.unlock();
         }
     }

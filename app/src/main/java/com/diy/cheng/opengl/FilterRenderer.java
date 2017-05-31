@@ -14,7 +14,7 @@ import android.opengl.Matrix;
 import android.util.Log;
 
 import com.diy.cheng.camera.CameraEngine;
-import com.diy.cheng.encode.CameraRecord;
+import com.diy.cheng.videoencode.CameraRecord;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

@@ -27,6 +27,6 @@
     <SurfaceView
         android:id="@+id/surface"
         android:layout_above="@id/linear_layout"
-        android:layout_width="720px"
-        android:layout_height="480px" />
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 </RelativeLayout>
